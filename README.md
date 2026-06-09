@@ -1,88 +1,83 @@
-# Mac Studio tmux ← iPhone control
+# Reach your existing tmux / Claude Code sessions from the iPhone
 
-Reach the persistent `tmux` sessions running on your **Mac Studio** and drive
-them from your **iPhone**, from anywhere — over a private **Tailscale** tailnet,
-using **Blink Shell** on the phone.
+For infrastructure you **already run** — machines that are up and full of your
+work, with **Tailscale on every machine and on the iPhone**. This repo wires
+your phone into the sessions already running on those boxes. It installs no
+fresh server and assumes nothing is empty.
 
 ```
- iPhone (Blink Shell)  ──── Tailscale (encrypted, no port-forwarding) ────▶  Mac Studio
-        mosh / ssh                      100.x.y.z                            tmux: persistent sessions
+ iPhone (Blink Shell)  ──── your Tailscale tailnet ────▶  your infra box
+        ssh / mosh                100.x.y.z                tmux attach -t main   (or: claude)
 ```
 
-Persistent `tmux` means your shells, builds, and long-running jobs keep running
-when you disconnect. Drop off Wi-Fi, switch to cellular, lock the phone — when
-you reconnect you land back in the exact same session.
+## The one thing to know first
 
-## Why this setup
+There are two different things both called "Claude Code sessions":
 
-- **Tailscale** — a private mesh VPN. No router config, no exposing SSH to the
-  public internet, works on cellular. The Mac Studio and iPhone just see each
-  other as if on the same LAN.
-- **Blink Shell** — the best iOS terminal: hardware-keyboard friendly, supports
-  `mosh` (roaming connections that survive IP changes and latency), and plays
-  well with tmux.
-- **tmux** — keeps sessions alive across disconnects so the phone is a true
-  remote control, not a fragile live link.
+1. **Claude Code on the web / iPhone app** → runs in an *isolated Anthropic
+   cloud container*. It is **not** on your tailnet and **cannot** reach your
+   infrastructure. (That container is why a session can look "empty.")
+2. **tmux / Claude Code running on your own infra box** → the machine that's
+   full of your work. **This** is what you reach.
+
+So you reach your sessions **directly: iPhone → your tailnet → your box.** Not
+through the cloud app. The steps below set up exactly that direct path.
 
 ## Quick start
 
-### On the Mac Studio
+### On the infra box (verify, don't install)
 
 ```bash
-git clone <this-repo> ~/Claude-code
+git clone <this-repo> ~/Claude-code      # optional — only for the helper scripts
 cd ~/Claude-code
-./scripts/setup-mac-studio.sh        # installs tmux/mosh, enables SSH, brings up Tailscale
-./scripts/tmux-session.sh main       # start (or attach to) a persistent session named "main"
+./scripts/check-host.sh                   # confirms Tailscale up, SSH on, tmux present; prints your connect command
+./scripts/check-host.sh --link            # (optional) use the phone-friendly tmux.conf
 ```
 
-The setup script prints the Mac's tailnet name/IP at the end — you'll need it
-on the phone.
+`check-host.sh` changes nothing on your system (except the optional config
+symlink). It just confirms the box is reachable and prints the exact command to
+paste into Blink.
 
 ### On the iPhone
 
-Follow **[docs/iphone-blink-setup.md](docs/iphone-blink-setup.md)**:
+Follow **[docs/iphone-blink-setup.md](docs/iphone-blink-setup.md)**. The short
+version, once Tailscale shows both ends Connected:
 
-1. Install **Tailscale**, sign in with the same account → both devices connected.
-2. Install **Blink Shell**, create an SSH key, add it to the Mac, add the host.
-3. Connect straight into your session:
+```
+ssh studio -t '~/Claude-code/scripts/tmux-session.sh main'
+# or without the repo on the box:
+ssh studio -t 'tmux attach -t main || tmux new -s main'
+```
 
-   ```
-   mosh mac-studio -- ~/Claude-code/scripts/tmux-session.sh main
-   ```
-
-   This creates the session the first time and re-attaches every time after.
+This attaches to your running `main` session — or creates it the first time.
+Drop signal, switch Wi-Fi↔cellular, lock the phone: the same session is waiting
+when you reconnect.
 
 ## What's in here
 
-| Path                          | Purpose                                                      |
-| ----------------------------- | ------------------------------------------------------------ |
-| `scripts/setup-mac-studio.sh` | One-shot, idempotent Mac setup: tmux, mosh, SSH, Tailscale.  |
-| `scripts/tmux-session.sh`     | Create-or-attach a named persistent session (the phone runs this). |
-| `config/tmux.conf`            | tmux config tuned for a touch keyboard + small screen.       |
-| `docs/iphone-blink-setup.md`  | Step-by-step Blink Shell + Tailscale setup on the iPhone.    |
+| Path                         | Purpose                                                          |
+| ---------------------------- | --------------------------------------------------------------- |
+| `scripts/check-host.sh`      | Verify an existing box is reachable; print the iPhone command. No installs. |
+| `scripts/tmux-session.sh`    | Create-or-attach a named persistent session (the command the phone runs). |
+| `config/tmux.conf`           | tmux tuned for a touch keyboard + small screen (optional).      |
+| `docs/iphone-blink-setup.md` | Step-by-step Blink Shell + Tailscale connection on the iPhone.  |
+
+## Authentication
+
+You already have Tailscale everywhere, so use it as the auth layer — two options:
+
+- **Tailscale SSH** — `sudo tailscale up --ssh` on the box + allow SSH in the
+  admin-console ACLs. Your tailnet identity *is* the login; no keys to manage.
+- **SSH key** — make a key in Blink, append its public half to
+  `~/.ssh/authorized_keys` on the box. Classic and works the same.
 
 ## Everyday commands
 
-| Action                        | Command                                                          |
-| ----------------------------- | --------------------------------------------------------------- |
-| Connect + attach (cellular)   | `mosh mac-studio -- ~/Claude-code/scripts/tmux-session.sh main` |
-| Connect + attach (SSH)        | `ssh -t mac-studio '~/Claude-code/scripts/tmux-session.sh main'`|
-| List sessions                 | `./scripts/tmux-session.sh -l`                                  |
-| New named session             | `./scripts/tmux-session.sh work`                               |
-| Kill a session                | `./scripts/tmux-session.sh -k work`                           |
-| Detach (inside tmux)          | `Ctrl-a d`                                                      |
-
-## Keeping sessions alive
-
-Persistent tmux only helps if the Mac stays awake. In **System Settings →
-Displays → Advanced** (or Energy), enable *"Prevent automatic sleeping when the
-display is off,"* or run `caffeinate -dimsu &`.
-
-## Security notes
-
-- Traffic is end-to-end encrypted by Tailscale (WireGuard); nothing is exposed
-  to the public internet.
-- Prefer key-based SSH (or Tailscale SSH) — the setup script enables Remote
-  Login but you authorize devices explicitly.
-- Lock down further with Tailscale ACLs in the admin console so only your phone
-  can reach the Mac's SSH port.
+| Action                       | Command                                                         |
+| ---------------------------- | -------------------------------------------------------------- |
+| Connect + attach (SSH)       | `ssh studio -t '~/Claude-code/scripts/tmux-session.sh main'`   |
+| Connect + attach (no repo)   | `ssh studio -t 'tmux attach -t main \|\| tmux new -s main'`     |
+| Connect + attach (cellular)  | `mosh studio -- ~/Claude-code/scripts/tmux-session.sh main`    |
+| Land in Claude Code          | `ssh studio -t 'tmux attach -t claude \|\| tmux new -s claude claude'` |
+| List sessions                | `ssh studio 'tmux ls'`                                          |
+| Detach (inside tmux)         | `Ctrl-a d`                                                      |
