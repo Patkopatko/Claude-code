@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "jarvis-datamap": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--with", "mcp",
+        "--with", "httpx",
+        "python",
+        "integrations/datamap-mcp/server.py"
+      ],
+      "env": {
+        "JARVIS_API_TOKEN": "${JARVIS_API_TOKEN}"
+      }
+    }
+  }
+}

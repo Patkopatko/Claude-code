@@ -1,83 +1,56 @@
-# Reach your existing tmux / Claude Code sessions from the iPhone
+# Give Claude access to your Jarvis Datamap — everywhere
 
-For infrastructure you **already run** — machines that are up and full of your
-work, with **Tailscale on every machine and on the iPhone**. This repo wires
-your phone into the sessions already running on those boxes. It installs no
-fresh server and assumes nothing is empty.
+The goal: wherever you install Claude (desktop, notebook, Claude Code), it can
+reach your **Jarvis Datamap API** the same way. This repo carries that
+integration, set up once and reused everywhere.
 
-```
- iPhone (Blink Shell)  ──── your Tailscale tailnet ────▶  your infra box
-        ssh / mosh                100.x.y.z                tmux attach -t main   (or: claude)
-```
+- **API base:** `https://prod.jarvis.sk/api/datamap`
+- **OpenAPI spec:** `https://prod.jarvis.sk/developer/datamap/openapi.json`
+- **Auth:** `Authorization: Bearer <token>` — the token lives **only** in the
+  `JARVIS_API_TOKEN` environment variable, never in any committed file.
 
-## The one thing to know first
+## Two ways in (use both — they complement each other)
 
-There are two different things both called "Claude Code sessions":
-
-1. **Claude Code on the web / iPhone app** → runs in an *isolated Anthropic
-   cloud container*. It is **not** on your tailnet and **cannot** reach your
-   infrastructure. (That container is why a session can look "empty.")
-2. **tmux / Claude Code running on your own infra box** → the machine that's
-   full of your work. **This** is what you reach.
-
-So you reach your sessions **directly: iPhone → your tailnet → your box.** Not
-through the cloud app. The steps below set up exactly that direct path.
+| Path | Where it runs | Best for |
+| --- | --- | --- |
+| **MCP server** (`integrations/datamap-mcp/`) | Desktop, notebook, Claude Code | Native tool access: `get_openapi_spec`, `datamap_request`. |
+| **`datamap` skill** (`.claude/skills/datamap/`) | Any session with network + token | Lightweight `curl`-based access, incl. web sessions from the phone. |
 
 ## Quick start
 
-### On the infra box (verify, don't install)
-
 ```bash
-git clone <this-repo> ~/Claude-code      # optional — only for the helper scripts
-cd ~/Claude-code
-./scripts/check-host.sh                   # confirms Tailscale up, SSH on, tmux present; prints your connect command
-./scripts/check-host.sh --link            # (optional) use the phone-friendly tmux.conf
+# 1. Set your token once (put it in ~/.zshrc to persist)
+export JARVIS_API_TOKEN='your-datamap-token'
+
+# 2a. Claude Code: just open this repo — .mcp.json registers the server; approve it.
+# 2b. Other installs: see integrations/datamap-mcp/README.md (Desktop, global CLI, venv, phone)
 ```
 
-`check-host.sh` changes nothing on your system (except the optional config
-symlink). It just confirms the box is reachable and prints the exact command to
-paste into Blink.
+Then ask Claude: *"Load the Datamap OpenAPI spec and list the endpoints."*
 
-### On the iPhone
+## 🔐 Token safety
 
-Follow **[docs/iphone-blink-setup.md](docs/iphone-blink-setup.md)**. The short
-version, once Tailscale shows both ends Connected:
+- The token is referenced only as `$JARVIS_API_TOKEN`. It is **never** written to
+  a file here; `.env` is gitignored and only `.env.example` (a placeholder) is
+  committed.
+- If the token was ever pasted into a chat or shared, **rotate it in Jarvis** and
+  keep the new one only as the env var.
 
-```
-ssh studio -t '~/Claude-code/scripts/tmux-session.sh main'
-# or without the repo on the box:
-ssh studio -t 'tmux attach -t main || tmux new -s main'
-```
+## Layout
 
-This attaches to your running `main` session — or creates it the first time.
-Drop signal, switch Wi-Fi↔cellular, lock the phone: the same session is waiting
-when you reconnect.
+| Path | Purpose |
+| --- | --- |
+| `integrations/datamap-mcp/server.py` | The MCP server (Python, FastMCP). |
+| `integrations/datamap-mcp/README.md` | Per-surface install: Claude Code, Desktop, venv, phone. |
+| `integrations/datamap-mcp/.env.example` | Template for your local `.env`. |
+| `.mcp.json` | Registers the server for Claude Code in this repo. |
+| `.claude/skills/datamap/SKILL.md` | The lightweight `curl`-based access skill. |
 
-## What's in here
+---
 
-| Path                         | Purpose                                                          |
-| ---------------------------- | --------------------------------------------------------------- |
-| `scripts/check-host.sh`      | Verify an existing box is reachable; print the iPhone command. No installs. |
-| `scripts/tmux-session.sh`    | Create-or-attach a named persistent session (the command the phone runs). |
-| `config/tmux.conf`           | tmux tuned for a touch keyboard + small screen (optional).      |
-| `docs/iphone-blink-setup.md` | Step-by-step Blink Shell + Tailscale connection on the iPhone.  |
+### Also in this repo: reach your Mac sessions from the iPhone
 
-## Authentication
-
-You already have Tailscale everywhere, so use it as the auth layer — two options:
-
-- **Tailscale SSH** — `sudo tailscale up --ssh` on the box + allow SSH in the
-  admin-console ACLs. Your tailnet identity *is* the login; no keys to manage.
-- **SSH key** — make a key in Blink, append its public half to
-  `~/.ssh/authorized_keys` on the box. Classic and works the same.
-
-## Everyday commands
-
-| Action                       | Command                                                         |
-| ---------------------------- | -------------------------------------------------------------- |
-| Connect + attach (SSH)       | `ssh studio -t '~/Claude-code/scripts/tmux-session.sh main'`   |
-| Connect + attach (no repo)   | `ssh studio -t 'tmux attach -t main \|\| tmux new -s main'`     |
-| Connect + attach (cellular)  | `mosh studio -- ~/Claude-code/scripts/tmux-session.sh main`    |
-| Land in Claude Code          | `ssh studio -t 'tmux attach -t claude \|\| tmux new -s claude claude'` |
-| List sessions                | `ssh studio 'tmux ls'`                                          |
-| Detach (inside tmux)         | `Ctrl-a d`                                                      |
+Earlier setup for attaching to tmux / Claude Code sessions on your own
+infrastructure from the iPhone over Tailscale lives in
+**[docs/iphone-blink-setup.md](docs/iphone-blink-setup.md)** and `scripts/`.
+Separate from Datamap — keep it or say the word and I'll remove it.
